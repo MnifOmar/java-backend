@@ -9,7 +9,7 @@ pipeline {
         SCANNER_HOME=tool 'sonar-scanner'
         VERSION_NUMBER = '1.0.0'
         FRONTEND_IMAGE = 'my-react-app'
-        BACKEND_IMAGE = 'SpringBootApp'
+        BACKEND_IMAGE = 'springBootApp'
     }
     stages {
         stage('Checkout Stage ') {
