@@ -1,0 +1,74 @@
+pipeline {
+    agent any
+    tools {
+        maven 'maven'
+        dockerTool 'Docker'
+        nodejs 'Node20170'
+
+    }
+    environment{
+        SCANNER_HOME=tool 'sonar-scanner'
+        VERSION_NUMBER = '1.0.0'
+        FRONTEND_IMAGE = 'my-react-app'
+        BACKEND_IMAGE = 'SpringBootApp'
+    }
+    stages {
+        stage('Checkout Stage ') {
+            steps {
+                checkout scm
+            }
+        }
+        stage('Build Stage') {
+            steps {
+                sh 'cd backend && mvn clean install'
+            }
+        }
+        stage('code analysis using sonarQube')
+                {
+                    steps{
+                        withSonarQubeEnv('sonar-server') {
+                            sh ''' 
+                            $SCANNER_HOME/bin/sonar-scanner \
+                            -Dsonar.projectName=backend \
+                            -Dsonar.java.binaries=. \
+                            -Dsonar.projectKey=backend
+                        '''
+                        }
+
+                    }
+                }
+
+        stage('Generation de bom') {
+            steps {
+                echo 'Generation BOM pour le backend en cours...'
+                dir('backend'){
+                    sh 'mvn org.cyclonedx:cyclonedx-maven-plugin:makeAggregateBom'
+                }
+            }
+        }
+        stage('Dependency-Track Analysis') {
+            steps {
+                echo 'uploading Bom to dependency-Track'
+                withCredentials([string(credentialsId :'dp-key',variable :'API_KEY')]){
+                dependencyTrackPublisher artifact :'backend/target/bom.json',projectId:'725d881c-3311-4afb-a474-0c7d2fc6e8ef',projectVersion:VERSION_NUMBER,synchronous: false ,dependencyTrackApiKey:API_KEY}
+            }
+        }
+        stage('build jar') {
+            steps {
+                sh 'cd backend && mvn clean package'
+            }
+        }
+        stage('Docker Build') {
+            steps {
+                echo 'Building Docker images for frontend and backend...'
+                sh """docker build -t ${FRONTEND_IMAGE}:latest -f react-frontend/Dockerfile react-frontend"""
+                sh """docker build -t ${BACKEND_IMAGE}:latest -f backend/docker/Dockerfile backend"""
+            }}
+        stage('Deploy with Docker Compose') {
+            steps {
+                echo 'Deploying with Docker Compose...'
+                sh 'docker-compose down && docker-compose up -d'
+            }}
+
+    }
+}
