@@ -2,7 +2,6 @@ pipeline {
     agent any
     tools {
         maven 'maven'
-        dockerTool 'Docker'
         nodejs 'Node20170'
 
     }
@@ -62,7 +61,7 @@ pipeline {
             steps {
                 echo 'Building Docker images for frontend and backend...'
                 sh """docker build -t ${FRONTEND_IMAGE}:latest -f react-frontend/Dockerfile react-frontend"""
-                sh """docker build -t ${BACKEND_IMAGE}:latest -f backend/docker/Dockerfile backend"""
+                sh """docker build -t ${BACKEND_IMAGE}:latest -f backend/Dockerfile backend"""
             }}
         stage('Deploy with Docker Compose') {
             steps {
