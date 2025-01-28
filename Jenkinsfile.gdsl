@@ -55,6 +55,8 @@ pipeline {
         stage('build jar') {
             steps {
                 sh 'cd backend && mvn clean package'
+                sh 'echo "Checking if the JAR exists:"'
+                sh 'ls -l backend/target/demo-0.0.1-SNAPSHOT.jar'
             }
         }
         stage('Docker Build') {
