@@ -1,15 +1,24 @@
+# Version du fichier de configuration Docker Compose
 version: '3.8'
+
 services:
+  # Service pour le backend (application Spring)
   backend:
+    # Contexte de construction : dossier contenant le Dockerfile pour le backend
     build:
       context: ./backend
+    # Mappe le port 8081 de l'hôte au port 8080 du conteneur
     ports:
-      - "8081:8080"
+      - "9093:8080"
+    # Définit une variable d'environnement pour spécifier le profil Spring à utiliser (prod)
     environment:
       - SPRING_PROFILES_ACTIVE=prod
 
+  # Service pour le frontend (application React)
   frontend:
+    # Contexte de construction : dossier contenant le Dockerfile pour le frontend
     build:
       context: ./react-frontend
+    # Mappe le port 3000 de l'hôte au port 80 du conteneur
     ports:
       - "3000:80"
