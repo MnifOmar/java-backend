@@ -15,7 +15,7 @@ pipeline {
         RESOURCE_GROUP = 'rg-private-aks-acr'
         BASTION_NAME = 'bastion-host'
         SSH_KEY = '/root/.ssh/id_rsa'
-        LOCAL_PORT = '5000'  // Local port for the tunnel
+        LOCAL_PORT = '5001'  // Local port for the tunnel
 
     }
 
