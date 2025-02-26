@@ -43,26 +43,26 @@ pipeline {
                 }
             }
         }
-        stage('Generation de BOM') {
-            steps {
-                echo 'Generating BOM for backend...'
-                dir('backend') {
-                    sh 'mvn org.cyclonedx:cyclonedx-maven-plugin:makeAggregateBom'
-                }
-            }
-        }
-        stage('Dependency-Track Analysis') {
-            steps {
-                echo 'Uploading BOM to Dependency-Track...'
-                withCredentials([string(credentialsId: 'DTToken', variable: 'API_KEY')]) {
-                    dependencyTrackPublisher artifact: 'backend/target/bom.json',
-                            projectId: '725d881c-3311-4afb-a474-0c7d2fc6e8ef',
-                            projectVersion: VERSION_NUMBER,
-                            synchronous: false,
-                            dependencyTrackApiKey: API_KEY
-                }
-            }
-        }
+//        stage('Generation de BOM') {
+//            steps {
+//                echo 'Generating BOM for backend...'
+//                dir('backend') {
+//                    sh 'mvn org.cyclonedx:cyclonedx-maven-plugin:makeAggregateBom'
+//                }
+//            }
+//        }
+//        stage('Dependency-Track Analysis') {
+//            steps {
+//                echo 'Uploading BOM to Dependency-Track...'
+//                withCredentials([string(credentialsId: 'DTToken', variable: 'API_KEY')]) {
+//                    dependencyTrackPublisher artifact: 'backend/target/bom.json',
+//                            projectId: '725d881c-3311-4afb-a474-0c7d2fc6e8ef',
+//                            projectVersion: VERSION_NUMBER,
+//                            synchronous: false,
+//                            dependencyTrackApiKey: API_KEY
+//                }
+//            }
+//        }
         stage('Build JAR') {
             steps {
                 sh 'cd backend && mvn clean package'
