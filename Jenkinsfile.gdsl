@@ -14,7 +14,7 @@ pipeline {
         VM_NAME = 'vm-jumpbox'
         RESOURCE_GROUP = 'rg-private-aks-acr'
         BASTION_NAME = 'bastion-host'
-        SSH_KEY = '/root/.ssh/id_rsa'
+        SSH_KEY = ' /var/jenkins_home/.ssh/id_rsa'
         LOCAL_PORT = '5001'  // Local port for the tunnel
 
     }
@@ -107,8 +107,8 @@ pipeline {
 
                     // Step 3: Transfer the Docker image tarballs using scp through the tunnel
                     sh """
-                 scp  -o StrictHostKeyChecking=no -P $LOCAL_PORT -i /root/.ssh/id_rsa /var/jenkins_home/workspace/MyFirstPipline/frontend.tar $VM_USER@127.0.0.1
-                 scp -o StrictHostKeyChecking=no -P $LOCAL_PORT -i /root/.ssh/id_rsa /var/jenkins_home/workspace/MyFirstPipline/backend.tar $VM_USER@127.0.0.1
+                 scp  -o StrictHostKeyChecking=no -P $LOCAL_PORT -i  $SSH_KEY /var/jenkins_home/workspace/MyFirstPipline/frontend.tar $VM_USER@127.0.0.1
+                 scp -o StrictHostKeyChecking=no -P $LOCAL_PORT -i  $SSH_KEY /var/jenkins_home/workspace/MyFirstPipline/backend.tar $VM_USER@127.0.0.1
                     """
 
                     // Step 4: Close the Bastion tunnel
