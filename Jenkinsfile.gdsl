@@ -86,12 +86,14 @@ pipeline {
         stage('Transfer Docker Images to VM') {
             steps {
                 script {
-                    echo 'Copying Docker images to Jumpbox VM over Bastion...'
+                    echo 'Starting transfer of Docker images to Jumpbox VM over Bastion...'
                     sh '''
-            # Get the private IP of the VM
+            echo "Retrieving private IP of the VM..."
             VM_IP=$(az vm show --name $VM_NAME --resource-group $RESOURCE_GROUP --query privateIps --output tsv)
+            echo "VM IP is: $VM_IP"
+            
+            echo "Using az network bastion ssh to copy files over Bastion..."
 
-            # Use az network bastion ssh to copy files over Bastion
             az network bastion ssh --name $BASTION_NAME \
                 --resource-group $RESOURCE_GROUP \
                 --target-resource-id $(az vm show --name $VM_NAME --resource-group $RESOURCE_GROUP --query id --output tsv) \
@@ -99,14 +101,14 @@ pipeline {
                 --username $VM_USER \
                 --ssh-key $SSH_KEY << 'EOF'
             
-            # Create a directory on the VM to store the tarballs
+            echo "Creating docker-images directory on VM..."
             mkdir -p docker-images
             
-            # Exit the SSH session to return to the local shell
+            echo "Exiting SSH session..."
             exit
             EOF
 
-            # Use scp over Bastion to copy the tarballs to the VM
+            echo "Using az network bastion scp to copy frontend image tarball..."
             az network bastion scp --name $BASTION_NAME \
                 --resource-group $RESOURCE_GROUP \
                 --target-resource-id $(az vm show --name $VM_NAME --resource-group $RESOURCE_GROUP --query id --output tsv) \
@@ -116,6 +118,7 @@ pipeline {
                 --local-path /var/jenkins_home/workspace/MyFirstPipline/frontend.tar \
                 --remote-path /docker-images/frontend.tar
 
+            echo "Using az network bastion scp to copy backend image tarball..."
             az network bastion scp --name $BASTION_NAME \
                 --resource-group $RESOURCE_GROUP \
                 --target-resource-id $(az vm show --name $VM_NAME --resource-group $RESOURCE_GROUP --query id --output tsv) \
@@ -123,38 +126,58 @@ pipeline {
                 --username $VM_USER \
                 --ssh-key $SSH_KEY \
                 --local-path /var/jenkins_home/workspace/MyFirstPipline/backend.tar \
-                --remote-path docker-images/backend.tar
+                --remote-path /docker-images/backend.tar
+
+            echo 'Docker images transfer to VM completed.'
             '''
                 }
             }
         }
+
         stage('Push Images to ACR from VM') {
             steps {
                 script {
-                    echo 'Pushing images to ACR from Jumpbox...'
+                    echo 'Starting push of Docker images to ACR from Jumpbox...'
                     sh '''
-                    VM_IP=$(az vm show --name $VM_NAME --resource-group $RESOURCE_GROUP --query privateIps --output tsv)
+            echo "Retrieving private IP of the VM..."
+            VM_IP=$(az vm show --name $VM_NAME --resource-group $RESOURCE_GROUP --query privateIps --output tsv)
+            echo "VM IP is: $VM_IP"
 
-                    az network bastion ssh --name $BASTION_NAME \
-                        --resource-group $RESOURCE_GROUP \
-                        --target-resource-id $(az vm show --name $VM_NAME --resource-group $RESOURCE_GROUP --query id --output tsv) \
-                        --auth-type ssh-key --username $VM_USER --ssh-key $SSH_KEY << EOF
+            echo "Using az network bastion ssh to log in to the Jumpbox VM..."
 
-                        docker load -i /var/jenkins_home/workspace/MyFirstPipline/frontend.tar
-                        docker load -i /var/jenkins_home/workspace/MyFirstPipline/backend.tar
+            az network bastion ssh --name $BASTION_NAME \
+                --resource-group $RESOURCE_GROUP \
+                --target-resource-id $(az vm show --name $VM_NAME --resource-group $RESOURCE_GROUP --query id --output tsv) \
+                --auth-type ssh-key --username $VM_USER --ssh-key $SSH_KEY << EOF
 
-                        az acr login --name $ACR_NAME
-                        
-                        docker tag $FRONTEND_IMAGE:$VERSION_NUMBER $ACR_NAME/$FRONTEND_IMAGE:$VERSION_NUMBER
-                        docker tag $BACKEND_IMAGE:$VERSION_NUMBER $ACR_NAME/$BACKEND_IMAGE:$VERSION_NUMBER
+                echo "Loading frontend Docker image..."
+                docker load -i frontend.tar
 
-                        docker push $ACR_NAME/$FRONTEND_IMAGE:$VERSION_NUMBER
-                        docker push $ACR_NAME/$BACKEND_IMAGE:$VERSION_NUMBER
+                echo "Loading backend Docker image..."
+                docker load -i backend.tar
 
-                        EOF
-                    '''
+                echo "Logging in to Azure Container Registry..."
+                az acr login --name $ACR_NAME
+                
+                echo "Tagging frontend image..."
+                docker tag $FRONTEND_IMAGE:$VERSION_NUMBER $ACR_NAME/$FRONTEND_IMAGE:$VERSION_NUMBER
+
+                echo "Tagging backend image..."
+                docker tag $BACKEND_IMAGE:$VERSION_NUMBER $ACR_NAME/$BACKEND_IMAGE:$VERSION_NUMBER
+
+                echo "Pushing frontend image to ACR..."
+                docker push $ACR_NAME/$FRONTEND_IMAGE:$VERSION_NUMBER
+
+                echo "Pushing backend image to ACR..."
+                docker push $ACR_NAME/$BACKEND_IMAGE:$VERSION_NUMBER
+
+                echo "Images pushed to ACR successfully."
+                
+                EOF
+            '''
                 }
             }
         }
+
     }
 }
