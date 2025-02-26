@@ -14,7 +14,7 @@ pipeline {
         VM_NAME = 'vm-jumpbox'
         RESOURCE_GROUP = 'rg-private-aks-acr'
         BASTION_NAME = 'bastion-host'
-        SSH_KEY = ' /var/jenkins_home/.ssh/id_rsa'
+        SSH_KEY = ' /root/.ssh/id_rsa'
         LOCAL_PORT = '5001'  // Local port for the tunnel
 
     }
@@ -71,30 +71,32 @@ pipeline {
                 sh 'ls -l backend/target/demo-0.0.1-SNAPSHOT.jar'
             }
         }
-        stage('Docker Build and Save') {
+        stage('Docker Build, Save, and Compress') {
             steps {
                 script {
-                    echo 'Building Docker images...'
+                    echo 'Building and compressing Docker images...'
                     sh '''
                     docker build -t $FRONTEND_IMAGE:$VERSION_NUMBER /var/jenkins_home/workspace/MyFirstPipline/react-frontend/
                     docker build -t $BACKEND_IMAGE:$VERSION_NUMBER /var/jenkins_home/workspace/MyFirstPipline/backend/
                     
                     docker save -o frontend.tar $FRONTEND_IMAGE:$VERSION_NUMBER
                     docker save -o backend.tar $BACKEND_IMAGE:$VERSION_NUMBER
+                    
+                    # Compress images before transfer
+                    tar -czvf frontend.tar.gz frontend.tar
+                    tar -czvf backend.tar.gz backend.tar
                     '''
                 }
             }
         }
 
-        stage('Transfer Docker Images to VM') {
+        stage('Transfer Compressed Docker Images to VM') {
             steps {
                 script {
-                    echo 'Starting transfer of Docker images to Jumpbox VM over Bastion...'
+                    echo 'Starting transfer of compressed Docker images to Jumpbox VM over Bastion...'
 
-                    // Step 1: Get the VM resource ID
                     def vmResourceId = sh(script: "az vm show --name $VM_NAME --resource-group $RESOURCE_GROUP --query id --output tsv", returnStdout: true).trim()
 
-                    // Step 2: Create a Bastion tunnel
                     sh """
                     echo "Creating Bastion tunnel..."
                     az network bastion tunnel --name $BASTION_NAME \
@@ -102,16 +104,16 @@ pipeline {
                         --target-resource-id $vmResourceId \
                         --resource-port 22 \
                         --port $LOCAL_PORT &
+
                     sleep 10  # Wait for the tunnel to establish
                     """
 
-                    // Step 3: Transfer the Docker image tarballs using scp through the tunnel
                     sh """
-                 scp  -o StrictHostKeyChecking=no -P $LOCAL_PORT -i  $SSH_KEY /var/jenkins_home/workspace/MyFirstPipline/frontend.tar $VM_USER@127.0.0.1:
-                 scp -o StrictHostKeyChecking=no -P $LOCAL_PORT -i  $SSH_KEY /var/jenkins_home/workspace/MyFirstPipline/backend.tar $VM_USER@127.0.0.1:
+                    echo "Transferring compressed images..."
+                    scp -C -o StrictHostKeyChecking=no -P $LOCAL_PORT -i $SSH_KEY frontend.tar.gz $VM_USER@127.0.0.1:
+                    scp -C -o StrictHostKeyChecking=no -P $LOCAL_PORT -i $SSH_KEY backend.tar.gz $VM_USER@127.0.0.1:
                     """
 
-                    // Step 4: Close the Bastion tunnel
                     sh """
                     echo "Closing Bastion tunnel..."
                     kill \$(lsof -t -i:$LOCAL_PORT)  # Kill the tunnel process
@@ -120,10 +122,10 @@ pipeline {
             }
         }
 
-        stage('Push Images to ACR from VM') {
+        stage('Decompress and Push Images to ACR from VM') {
             steps {
                 script {
-                    echo 'Starting push of Docker images to ACR from Jumpbox...'
+                    echo 'Decompressing and pushing Docker images to ACR from Jumpbox...'
                     sh '''
             echo "Retrieving private IP of the VM..."
             VM_IP=$(az vm show --name $VM_NAME --resource-group $RESOURCE_GROUP --query privateIps --output tsv)
@@ -136,11 +138,15 @@ pipeline {
                 --target-resource-id $(az vm show --name $VM_NAME --resource-group $RESOURCE_GROUP --query id --output tsv) \
                 --auth-type ssh-key --username $VM_USER --ssh-key $SSH_KEY << EOF
 
+                echo "Decompressing Docker images..."
+                tar -xzvf frontend.tar.gz
+                tar -xzvf backend.tar.gz
+
                 echo "Loading frontend Docker image..."
-                sudo docker load -i /docker-images/frontend.tar
+                sudo docker load -i frontend.tar
 
                 echo "Loading backend Docker image..."
-                sudo docker load -i /docker-images/backend.tar
+                sudo docker load -i backend.tar
 
                 echo "Logging in to Azure Container Registry..."
                 sudo az acr login --name $ACR_NAME
