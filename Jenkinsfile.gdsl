@@ -100,7 +100,7 @@ pipeline {
                 --ssh-key $SSH_KEY << 'EOF'
             
             # Create a directory on the VM to store the tarballs
-            mkdir -p /home/$VM_USER/docker-images
+            mkdir -p docker-images
             
             # Exit the SSH session to return to the local shell
             exit
@@ -114,7 +114,7 @@ pipeline {
                 --username $VM_USER \
                 --ssh-key $SSH_KEY \
                 --local-path frontend.tar \
-                --remote-path /home/$VM_USER/docker-images/frontend.tar
+                --remote-path /docker-images/frontend.tar
 
             az network bastion scp --name $BASTION_NAME \
                 --resource-group $RESOURCE_GROUP \
@@ -123,7 +123,7 @@ pipeline {
                 --username $VM_USER \
                 --ssh-key $SSH_KEY \
                 --local-path backend.tar \
-                --remote-path /home/$VM_USER/docker-images/backend.tar
+                --remote-path docker-images/backend.tar
             '''
                 }
             }
@@ -140,8 +140,8 @@ pipeline {
                         --target-resource-id $(az vm show --name $VM_NAME --resource-group $RESOURCE_GROUP --query id --output tsv) \
                         --auth-type ssh-key --username $VM_USER --ssh-key $SSH_KEY << EOF
 
-                        docker load -i /home/$VM_USER/frontend.tar
-                        docker load -i /home/$VM_USER/backend.tar
+                        docker load -i frontend.tar
+                        docker load -i backend.tar
 
                         az acr login --name $ACR_NAME
                         
