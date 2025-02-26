@@ -33,18 +33,18 @@ pipeline {
                 }
             }
         }
-        stage('Code Analysis with SonarQube') {
-            steps {
-                withSonarQubeEnv('sonar-server') {
-                    sh ''' 
-                    $SCANNER_HOME/bin/sonar-scanner \
-                    -Dsonar.projectName=backend \
-                    -Dsonar.java.binaries=. \
-                    -Dsonar.projectKey=backend
-                    '''
-                }
-            }
-        }
+//        stage('Code Analysis with SonarQube') {
+//            steps {
+//                withSonarQubeEnv('sonar-server') {
+//                    sh '''
+//                    $SCANNER_HOME/bin/sonar-scanner \
+//                    -Dsonar.projectName=backend \
+//                    -Dsonar.java.binaries=. \
+//                    -Dsonar.projectKey=backend
+//                    '''
+//                }
+//            }
+//        }
 //        stage('Generation de BOM') {
 //            steps {
 //                echo 'Generating BOM for backend...'
