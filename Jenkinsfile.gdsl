@@ -151,25 +151,25 @@ pipeline {
                 --auth-type ssh-key --username $VM_USER --ssh-key $SSH_KEY << EOF
 
                 echo "Loading frontend Docker image..."
-                docker load -i frontend.tar
+                sudo docker load -i /docker-images/frontend.tar
 
                 echo "Loading backend Docker image..."
-                docker load -i backend.tar
+                sudo docker load -i /docker-images/backend.tar
 
                 echo "Logging in to Azure Container Registry..."
-                az acr login --name $ACR_NAME
+                sudo az acr login --name $ACR_NAME
                 
                 echo "Tagging frontend image..."
-                docker tag $FRONTEND_IMAGE:$VERSION_NUMBER $ACR_NAME/$FRONTEND_IMAGE:$VERSION_NUMBER
+                sudo docker tag $FRONTEND_IMAGE:$VERSION_NUMBER $ACR_NAME/$FRONTEND_IMAGE:$VERSION_NUMBER
 
                 echo "Tagging backend image..."
-                docker tag $BACKEND_IMAGE:$VERSION_NUMBER $ACR_NAME/$BACKEND_IMAGE:$VERSION_NUMBER
+                sudo docker tag $BACKEND_IMAGE:$VERSION_NUMBER $ACR_NAME/$BACKEND_IMAGE:$VERSION_NUMBER
 
                 echo "Pushing frontend image to ACR..."
-                docker push $ACR_NAME/$FRONTEND_IMAGE:$VERSION_NUMBER
+                sudo docker push $ACR_NAME/$FRONTEND_IMAGE:$VERSION_NUMBER
 
                 echo "Pushing backend image to ACR..."
-                docker push $ACR_NAME/$BACKEND_IMAGE:$VERSION_NUMBER
+                sudo docker push $ACR_NAME/$BACKEND_IMAGE:$VERSION_NUMBER
 
                 echo "Images pushed to ACR successfully."
                 
