@@ -107,11 +107,8 @@ pipeline {
 
                     // Step 3: Transfer the Docker image tarballs using scp through the tunnel
                     sh """
-                    echo "Transferring frontend Docker image..."
-                    scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -P $LOCAL_PORT /var/jenkins_home/workspace/MyFirstPipline/frontend.tar $VM_USER@127.0.0.1:/docker-images/frontend.tar
-
-                    echo "Transferring backend Docker image..."
-                    scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -P $LOCAL_PORT /var/jenkins_home/workspace/MyFirstPipline/backend.tar $VM_USER@127.0.0.1:/docker-images/backend.tar
+                 scp -P $LOCAL_PORT -i /root/.ssh/id_rsa /var/jenkins_home/workspace/Pipeline/frontend.tar adminuser@127.0.0.1:/docker-images
+                 scp -P $LOCAL_PORT -i /root/.ssh/id_rsa /var/jenkins_home/workspace/Pipeline/backend.tar adminuser@127.0.0.1:/docker-images
                     """
 
                     // Step 4: Close the Bastion tunnel
