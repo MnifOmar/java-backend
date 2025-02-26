@@ -113,7 +113,7 @@ pipeline {
                 --auth-type ssh-key \
                 --username $VM_USER \
                 --ssh-key $SSH_KEY \
-                --local-path frontend.tar \
+                --local-path /var/jenkins_home/workspace/MyFirstPipline/frontend.tar \
                 --remote-path /docker-images/frontend.tar
 
             az network bastion scp --name $BASTION_NAME \
@@ -122,7 +122,7 @@ pipeline {
                 --auth-type ssh-key \
                 --username $VM_USER \
                 --ssh-key $SSH_KEY \
-                --local-path backend.tar \
+                --local-path /var/jenkins_home/workspace/MyFirstPipline/backend.tar \
                 --remote-path docker-images/backend.tar
             '''
                 }
@@ -140,8 +140,8 @@ pipeline {
                         --target-resource-id $(az vm show --name $VM_NAME --resource-group $RESOURCE_GROUP --query id --output tsv) \
                         --auth-type ssh-key --username $VM_USER --ssh-key $SSH_KEY << EOF
 
-                        docker load -i frontend.tar
-                        docker load -i backend.tar
+                        docker load -i /var/jenkins_home/workspace/MyFirstPipline/frontend.tar
+                        docker load -i /var/jenkins_home/workspace/MyFirstPipline/backend.tar
 
                         az acr login --name $ACR_NAME
                         
