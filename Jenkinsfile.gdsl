@@ -3,73 +3,158 @@ pipeline {
     tools {
         maven 'maven'
         nodejs 'Node20170'
-
     }
-    environment{
-        SCANNER_HOME=tool 'sonar-scanner'
-        VERSION_NUMBER = '1.0.0'
+    environment {
+        SCANNER_HOME = tool 'sonar-scanner'
+        VERSION_NUMBER = "1.0.${BUILD_NUMBER}"  // Auto-incrementing
         FRONTEND_IMAGE = 'my-react-app'
         BACKEND_IMAGE = 'my-springboot-app'
+        ACR_NAME = 'myacr.azurecr.io'
+        VM_USER = 'adminuser'
+        VM_NAME = 'vm-jumpbox'
+        RESOURCE_GROUP = 'rg-private-aks-acr'
+        BASTION_NAME = 'bastion-host'
+        SSH_KEY = '/root/.ssh/id_rsa'
     }
+
     stages {
-        stage('Checkout Stage ') {
+        stage('Checkout') {
             steps {
                 checkout scm
             }
         }
-        stage('Build Stage') {
+        stage('Install Backend Dependencies') {
             steps {
-                sh 'cd backend && mvn clean install'
+                echo 'Installing backend dependencies using Maven...'
+                dir('backend') {
+                    sh 'mvn clean install -DskipTests'
+                }
             }
         }
-        stage('code analysis using sonarQube')
-                {
-                    steps{
-                        withSonarQubeEnv('sonar-server') {
-                            sh ''' 
-                            $SCANNER_HOME/bin/sonar-scanner \
-                            -Dsonar.projectName=backend \
-                            -Dsonar.java.binaries=. \
-                            -Dsonar.projectKey=backend
-                        '''
-                        }
-
-                    }
-                }
-
-        stage('Generation de bom') {
+        stage('Code Analysis with SonarQube') {
             steps {
-                echo 'Generation BOM pour le backend en cours...'
-                dir('backend'){
+                withSonarQubeEnv('sonar-server') {
+                    sh ''' 
+                    $SCANNER_HOME/bin/sonar-scanner \
+                    -Dsonar.projectName=backend \
+                    -Dsonar.java.binaries=. \
+                    -Dsonar.projectKey=backend
+                    '''
+                }
+            }
+        }
+        stage('Generation de BOM') {
+            steps {
+                echo 'Generating BOM for backend...'
+                dir('backend') {
                     sh 'mvn org.cyclonedx:cyclonedx-maven-plugin:makeAggregateBom'
                 }
             }
         }
         stage('Dependency-Track Analysis') {
             steps {
-                echo 'uploading Bom to dependency-Track'
-                withCredentials([string(credentialsId :'dp-key',variable :'API_KEY')]){
-                dependencyTrackPublisher artifact :'backend/target/bom.json',projectId:'725d881c-3311-4afb-a474-0c7d2fc6e8ef',projectVersion:VERSION_NUMBER,synchronous: false ,dependencyTrackApiKey:API_KEY}
+                echo 'Uploading BOM to Dependency-Track...'
+                withCredentials([string(credentialsId: 'DTToken', variable: 'API_KEY')]) {
+                    dependencyTrackPublisher artifact: 'backend/target/bom.json',
+                            projectId: '725d881c-3311-4afb-a474-0c7d2fc6e8ef',
+                            projectVersion: VERSION_NUMBER,
+                            synchronous: false,
+                            dependencyTrackApiKey: API_KEY
+                }
             }
         }
-        stage('build jar') {
+        stage('Build JAR') {
             steps {
                 sh 'cd backend && mvn clean package'
-                sh 'echo "Checking if the JAR exists:"'
                 sh 'ls -l backend/target/demo-0.0.1-SNAPSHOT.jar'
             }
         }
-        stage('Docker Build') {
+        stage('Docker Build and Save') {
             steps {
-                echo 'Building Docker images for frontend and backend...'
-                sh """docker build -t ${FRONTEND_IMAGE}:latest -f react-frontend/Dockerfile react-frontend"""
-                sh """docker build -t ${BACKEND_IMAGE}:latest -f backend/Dockerfile backend"""
-            }}
-        stage('Deploy with Docker Compose') {
+                script {
+                    echo 'Building Docker images...'
+                    sh '''
+                    docker build -t $FRONTEND_IMAGE:$VERSION_NUMBER frontend/
+                    docker build -t $BACKEND_IMAGE:$VERSION_NUMBER backend/
+                    
+                    docker save -o frontend.tar $FRONTEND_IMAGE:$VERSION_NUMBER
+                    docker save -o backend.tar $BACKEND_IMAGE:$VERSION_NUMBER
+                    '''
+                }
+            }
+        }
+        stage('Transfer Docker Images to VM') {
             steps {
-                echo 'Deploying with Docker Compose...'
-                sh 'docker-compose down && docker-compose up -d'
-            }}
+                script {
+                    echo 'Copying Docker images to Jumpbox VM over Bastion...'
+                    sh '''
+            # Get the private IP of the VM
+            VM_IP=$(az vm show --name $VM_NAME --resource-group $RESOURCE_GROUP --query privateIps --output tsv)
 
+            # Use az network bastion ssh to copy files over Bastion
+            az network bastion ssh --name $BASTION_NAME \
+                --resource-group $RESOURCE_GROUP \
+                --target-resource-id $(az vm show --name $VM_NAME --resource-group $RESOURCE_GROUP --query id --output tsv) \
+                --auth-type ssh-key \
+                --username $VM_USER \
+                --ssh-key $SSH_KEY << 'EOF'
+            
+            # Create a directory on the VM to store the tarballs
+            mkdir -p /home/$VM_USER/docker-images
+            
+            # Exit the SSH session to return to the local shell
+            exit
+            EOF
+
+            # Use scp over Bastion to copy the tarballs to the VM
+            az network bastion scp --name $BASTION_NAME \
+                --resource-group $RESOURCE_GROUP \
+                --target-resource-id $(az vm show --name $VM_NAME --resource-group $RESOURCE_GROUP --query id --output tsv) \
+                --auth-type ssh-key \
+                --username $VM_USER \
+                --ssh-key $SSH_KEY \
+                --local-path frontend.tar \
+                --remote-path /home/$VM_USER/docker-images/frontend.tar
+
+            az network bastion scp --name $BASTION_NAME \
+                --resource-group $RESOURCE_GROUP \
+                --target-resource-id $(az vm show --name $VM_NAME --resource-group $RESOURCE_GROUP --query id --output tsv) \
+                --auth-type ssh-key \
+                --username $VM_USER \
+                --ssh-key $SSH_KEY \
+                --local-path backend.tar \
+                --remote-path /home/$VM_USER/docker-images/backend.tar
+            '''
+                }
+            }
+        }
+        stage('Push Images to ACR from VM') {
+            steps {
+                script {
+                    echo 'Pushing images to ACR from Jumpbox...'
+                    sh '''
+                    VM_IP=$(az vm show --name $VM_NAME --resource-group $RESOURCE_GROUP --query privateIps --output tsv)
+
+                    az network bastion ssh --name $BASTION_NAME \
+                        --resource-group $RESOURCE_GROUP \
+                        --target-resource-id $(az vm show --name $VM_NAME --resource-group $RESOURCE_GROUP --query id --output tsv) \
+                        --auth-type ssh-key --username $VM_USER --ssh-key $SSH_KEY << EOF
+
+                        docker load -i /home/$VM_USER/frontend.tar
+                        docker load -i /home/$VM_USER/backend.tar
+
+                        az acr login --name $ACR_NAME
+                        
+                        docker tag $FRONTEND_IMAGE:$VERSION_NUMBER $ACR_NAME/$FRONTEND_IMAGE:$VERSION_NUMBER
+                        docker tag $BACKEND_IMAGE:$VERSION_NUMBER $ACR_NAME/$BACKEND_IMAGE:$VERSION_NUMBER
+
+                        docker push $ACR_NAME/$FRONTEND_IMAGE:$VERSION_NUMBER
+                        docker push $ACR_NAME/$BACKEND_IMAGE:$VERSION_NUMBER
+
+                        EOF
+                    '''
+                }
+            }
+        }
     }
 }
