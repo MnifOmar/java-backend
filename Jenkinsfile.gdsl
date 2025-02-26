@@ -114,10 +114,10 @@ pipeline {
                     scp -C -o StrictHostKeyChecking=no -P $LOCAL_PORT -i $SSH_KEY backend.tar.gz $VM_USER@127.0.0.1:
                     """
 
-                    sh """
-                    echo "Closing Bastion tunnel..."
-                    kill \$(lsof -t -i:$LOCAL_PORT)  # Kill the tunnel process
-                    """
+//                    sh """
+//                    echo "Closing Bastion tunnel..."
+//                    kill \$(lsof -t -i:$LOCAL_PORT)  # Kill the tunnel process
+//                    """
                 }
             }
         }
