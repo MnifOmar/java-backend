@@ -6,16 +6,16 @@ pipeline {
     }
     environment {
         SCANNER_HOME = tool 'sonar-scanner'
-        VERSION_NUMBER = "1.0.${BUILD_NUMBER}"  // Auto-incrementing
+        VERSION_NUMBER = "1.0.${BUILD_NUMBER}"
         FRONTEND_IMAGE = 'my-react-app'
         BACKEND_IMAGE = 'my-springboot-app'
-        ACR_NAME = 'acrd92taz5e'
+        ACR_NAME = 'acrd92taz5e.azurecr.io'
         VM_USER = 'adminuser'
         VM_NAME = 'vm-jumpbox'
         RESOURCE_GROUP = 'rg-private-aks-acr'
         BASTION_NAME = 'bastion-host'
         SSH_KEY = ' /root/.ssh/id_rsa'
-        LOCAL_PORT = '5001'  // Local port for the tunnel
+        LOCAL_PORT = '5001'
 
     }
 
