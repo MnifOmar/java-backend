@@ -74,7 +74,7 @@ pipeline {
                 script {
                     echo 'Building Docker images...'
                     sh '''
-                    docker build -t $FRONTEND_IMAGE:$VERSION_NUMBER   /var/jenkins_home/workspace/MyFirstPipline/backendfrontend/
+                    docker build -t $FRONTEND_IMAGE:$VERSION_NUMBER   /var/jenkins_home/workspace/MyFirstPipline/frontend/
                     docker build -t $BACKEND_IMAGE:$VERSION_NUMBER  /var/jenkins_home/workspace/MyFirstPipline/backend/
                     
                     docker save -o frontend.tar $FRONTEND_IMAGE:$VERSION_NUMBER
