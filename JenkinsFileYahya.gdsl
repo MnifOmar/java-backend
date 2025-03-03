@@ -1,0 +1,167 @@
+pipeline {
+    agent any
+
+    tools {
+        nodejs 'Node20170'
+        maven 'Maven-3.9.9'
+        dockerTool 'Docker'
+    }
+
+    environment {
+        IMAGE_REGISTRY = "acrd92taz5e.azurecr.io"
+        VERSION_NUMBER = "1.0.0"
+        IMAGE_TAG = "${VERSION_NUMBER}-${BUILD_NUMBER}"
+        K8S_MANIFEST_DIR = "k8s"
+        JENKINS_API_TOKEN = credentials('JENKINS_API_TOKEN')
+        GITHUB_TOKEN = credentials('GitHubToken2')
+        RESOURCE_GROUP = "rg-private-aks-acr"
+        VM_NAME = "vm-jumpbox"
+        VM_SSH_USER = "adminuser"
+        VM_SSH_KEY_PATH = "/root/.ssh/id_rsa"
+        BASTION_HOST = "bastion-host"
+        FRONTEND_IMAGE = "my-react-app"
+        BACKEND_IMAGE = "quarkusbackend-jvm"
+        FRONTEND_IMAGE_NAME = "${IMAGE_REGISTRY}/${FRONTEND_IMAGE}"
+        BACKEND_IMAGE_NAME = "${IMAGE_REGISTRY}/${BACKEND_IMAGE}"
+        FRONTEND_IMAGE_TAGGED = "${FRONTEND_IMAGE_NAME}:${IMAGE_TAG}"
+        BACKEND_IMAGE_TAGGED = "${BACKEND_IMAGE_NAME}:${IMAGE_TAG}"
+    }
+
+    stages {
+        stage('Git Checkout') {
+            steps {
+                echo 'Checking out code from Git...'
+                git credentialsId: 'GitHubToken2', url: 'https://github.com/yahyamnif/QuarkusReactApp.git', branch: 'main'
+            }
+        }
+
+        stage('Build & Test Backend') {
+            steps {
+                echo 'Building and testing Quarkus backend...'
+                dir('quarkusbackend') {
+                    sh 'mvn clean install -DskipTests'
+                }
+            }
+        }
+
+        stage('Build & Test Frontend') {
+            steps {
+                echo 'Building React frontend...'
+                dir('frontend') {
+                    sh 'npm install && npm run build'
+                }
+            }
+        }
+
+        stage('Docker Build & Save') {
+            steps {
+                echo 'Building Docker images...'
+                script {
+                    docker.build("${BACKEND_IMAGE_TAGGED}", "-f quarkusbackend/src/main/docker/Dockerfile.jvm quarkusbackend")
+                    docker.build("${FRONTEND_IMAGE_TAGGED}", "-f frontend/Dockerfile frontend")
+                    sh "docker save -o ${WORKSPACE}/quarkusbackend-jvm-${IMAGE_TAG}.tar ${BACKEND_IMAGE_TAGGED}"
+                    sh "docker save -o ${WORKSPACE}/my-react-app-${IMAGE_TAG}.tar ${FRONTEND_IMAGE_TAGGED}"
+                }
+            }
+        }
+
+        stage('Transfer Images to VM and Push to ACR') {
+            steps {
+                script {
+                    echo 'Starting Bastion SSH tunnel...'
+
+                    sh """
+                        az network bastion tunnel \
+                            --name ${BASTION_HOST} \
+                            --resource-group ${RESOURCE_GROUP} \
+                            --target-resource-id \$(az vm show --name ${VM_NAME} --resource-group ${RESOURCE_GROUP} --query id --output tsv) \
+                            --port 5001 \
+                            --resource-port 22 &
+
+                        sleep 10  # Wait to ensure the tunnel is up
+                    """
+
+                    sh """
+                        az network bastion ssh \
+                            --name ${BASTION_HOST} \
+                            --resource-group ${RESOURCE_GROUP} \
+                            --target-resource-id \$(az vm show --name ${VM_NAME} --resource-group ${RESOURCE_GROUP} --query id --output tsv) \
+                            --auth-type ssh-key \
+                            --username ${VM_SSH_USER} \
+                            --ssh-key ${VM_SSH_KEY_PATH} << 'EOF'
+
+                        echo "Deleting old tar files..."
+                        rm -f /home/${VM_SSH_USER}/quarkusbackend-jvm-*.tar
+                        rm -f /home/${VM_SSH_USER}/my-react-app-*.tar
+
+                        EOF
+                    """
+
+                    echo 'Transferring Docker images to VM...'
+
+                    sh """
+                        scp -o StrictHostKeyChecking=no -P 5001 -i ${VM_SSH_KEY_PATH} \
+                            ${WORKSPACE}/quarkusbackend-jvm-${IMAGE_TAG}.tar \
+                            ${VM_SSH_USER}@127.0.0.1:/home/${VM_SSH_USER}/
+
+                        scp -o StrictHostKeyChecking=no -P 5001 -i ${VM_SSH_KEY_PATH} \
+                            ${WORKSPACE}/my-react-app-${IMAGE_TAG}.tar \
+                            ${VM_SSH_USER}@127.0.0.1:/home/${VM_SSH_USER}/
+                    """
+
+                    echo 'Connecting to VM and pushing images to ACR...'
+
+                    sh """
+                        az network bastion ssh \
+                            --name ${BASTION_HOST} \
+                            --resource-group ${RESOURCE_GROUP} \
+                            --target-resource-id \$(az vm show --name ${VM_NAME} --resource-group ${RESOURCE_GROUP} --query id --output tsv) \
+                            --auth-type ssh-key \
+                            --username ${VM_SSH_USER} \
+                            --ssh-key ${VM_SSH_KEY_PATH} << 'EOF'
+
+                        docker load -i /home/${VM_SSH_USER}/quarkusbackend-jvm-${IMAGE_TAG}.tar
+                        docker load -i /home/${VM_SSH_USER}/my-react-app-${IMAGE_TAG}.tar
+
+                        az acr login --name ${IMAGE_REGISTRY}
+
+                        docker tag ${BACKEND_IMAGE_TAGGED} ${BACKEND_IMAGE_NAME}:${IMAGE_TAG}
+                        docker tag ${FRONTEND_IMAGE_TAGGED} ${FRONTEND_IMAGE_NAME}:${IMAGE_TAG}
+
+                        docker push ${BACKEND_IMAGE_NAME}:${IMAGE_TAG}
+                        docker push ${FRONTEND_IMAGE_NAME}:${IMAGE_TAG}
+
+                        EOF
+                    """
+                }
+            }
+        }
+
+        stage('Update Deployment Files & Commit and Push Changes') {
+            steps {
+                script {
+                    sh """
+                        sed -i 's|image: \"${BACKEND_IMAGE_NAME}:.*\"|image: \"${BACKEND_IMAGE_NAME}:${IMAGE_TAG}\"|' ${K8S_MANIFEST_DIR}/backend-deployment.yaml
+                        sed -i 's|image: \"${FRONTEND_IMAGE_NAME}:.*\"|image: \"${FRONTEND_IMAGE_NAME}:${IMAGE_TAG}\"|' ${K8S_MANIFEST_DIR}/frontend-deployment.yaml
+                        git config --global user.email "jenkins@localhost.com"
+                        git config --global user.name "Jenkins"
+                        git add ${K8S_MANIFEST_DIR}/frontend-deployment.yaml ${K8S_MANIFEST_DIR}/backend-deployment.yaml
+                        git commit -m "Updated deployment manifests with new image tag ${IMAGE_TAG}"
+                        git push https://${GITHUB_TOKEN}@github.com/yahyamnif/QuarkusReactApp.git main
+                    """
+                }
+            }
+        }
+
+
+    }
+
+    post {
+        success {
+            echo 'CI/CD pipeline completed successfully!'
+        }
+        failure {
+            echo 'Pipeline failed. Check logs for details.'
+        }
+    }
+}

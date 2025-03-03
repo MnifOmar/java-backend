@@ -1,8 +1,14 @@
+provider "azurerm" {
+  features {}
+  subscription_id = "cebfd57e-0155-4a3e-94b1-a4b0391baf14"
+}
+
 # Variables
+#la localisation de nos ressources
 variable "location" {
   default = "eastus"
 }
-
+# le nom de notre groupe de ressource
 variable "resource_group_name" {
   default = "rg-private-aks-acr"
 }
@@ -179,31 +185,45 @@ resource "azurerm_kubernetes_cluster" "aks" {
   private_cluster_enabled = true
 }
 
+
 # ACR Private DNS Zone (created in the AKS-managed Resource Group)
 resource "azurerm_private_dns_zone" "acr_dns_zone" {
   name                = "privatelink.azurecr.io"
   resource_group_name = azurerm_kubernetes_cluster.aks.node_resource_group # AKS-managed Resource Group
-
   depends_on = [azurerm_kubernetes_cluster.aks] # Ensure AKS cluster is created first
 }
-
+# ACR Private Endpoint (created in the AKS-managed Resource Group)
+resource "azurerm_private_endpoint" "acr_private_endpoint" {
+  name                = "acr-private-endpoint"
+  location            = azurerm_resource_group.rg.location
+  resource_group_name = azurerm_kubernetes_cluster.aks.node_resource_group
+  subnet_id           = azurerm_subnet.vnet2_acr_subnet.id
+  private_service_connection {
+    name                           = "acr-private-connection"
+    private_connection_resource_id = azurerm_container_registry.acr.id
+    is_manual_connection           = false
+    subresource_names              = ["registry"]
+  }
+  private_dns_zone_group {
+    name                 = "acr-private-dns-zone-group"
+    private_dns_zone_ids = [azurerm_private_dns_zone.acr_dns_zone.id]
+  }
+  depends_on = [azurerm_kubernetes_cluster.aks]
+}
 # Link ACR DNS Zone to AKS Subnet
 resource "azurerm_private_dns_zone_virtual_network_link" "acr_dns_link_aks_subnet" {
   name                  = "acr-dns-link-aks-subnet"
-  resource_group_name   = azurerm_kubernetes_cluster.aks.node_resource_group # AKS-managed Resource Group
+  resource_group_name   = azurerm_kubernetes_cluster.aks.node_resource_group
   private_dns_zone_name = azurerm_private_dns_zone.acr_dns_zone.name
-  virtual_network_id    = azurerm_virtual_network.vnet2.id # Link to AKS subnet in VNet 2
-
-  depends_on = [azurerm_private_dns_zone.acr_dns_zone] # Ensure DNS Zone is created first
+  virtual_network_id    = azurerm_virtual_network.vnet2.id
+  depends_on = [azurerm_private_dns_zone.acr_dns_zone]
 }
-
 # Link ACR DNS Zone to VM Subnet
 resource "azurerm_private_dns_zone_virtual_network_link" "acr_dns_link_vm_subnet" {
   name                  = "acr-dns-link-vm-subnet"
-  resource_group_name   = azurerm_kubernetes_cluster.aks.node_resource_group # AKS-managed Resource Group
+  resource_group_name   = azurerm_kubernetes_cluster.aks.node_resource_group
   private_dns_zone_name = azurerm_private_dns_zone.acr_dns_zone.name
   virtual_network_id    = azurerm_virtual_network.vnet1.id # Link to VM subnet in VNet 1
-
   depends_on = [azurerm_private_dns_zone.acr_dns_zone] # Ensure DNS Zone is created first
 }
 # Retrieve the AKS Cluster Information
@@ -255,36 +275,7 @@ resource "azurerm_virtual_network_peering" "vnet2_to_vnet1" {
   allow_gateway_transit = true
 }
 
-# ACR Private Endpoint (created in the AKS-managed Resource Group)
-resource "azurerm_private_endpoint" "acr_private_endpoint" {
-  name                = "acr-private-endpoint"
-  location            = azurerm_resource_group.rg.location
-  resource_group_name = azurerm_kubernetes_cluster.aks.node_resource_group # AKS-managed Resource Group
-  subnet_id           = azurerm_subnet.vnet2_acr_subnet.id
 
-  private_service_connection {
-    name                           = "acr-private-connection"
-    private_connection_resource_id = azurerm_container_registry.acr.id
-    is_manual_connection           = false
-    subresource_names              = ["registry"]
-  }
-  private_dns_zone_group {
-    name                 = "acr-private-dns-zone-group"
-    private_dns_zone_ids = [azurerm_private_dns_zone.acr_dns_zone.id]
-  }
-
-  depends_on = [azurerm_kubernetes_cluster.aks] # Ensure AKS cluster is created first
-}
-# Add A Record for ACR Private Endpoint
-# resource "azurerm_private_dns_a_record" "acr_a_record" {
-#   name                = azurerm_container_registry.acr.name
-#   zone_name           = azurerm_private_dns_zone.acr_dns_zone.name
-#   resource_group_name = azurerm_kubernetes_cluster.aks.node_resource_group
-#   ttl                 = 300
-#   records             = [azurerm_private_endpoint.acr_private_endpoint.private_service_connection[0].private_ip_address]
-#
-#   depends_on = [azurerm_private_endpoint.acr_private_endpoint]
-# }
 # Assign the AcrPull Role to the AKS Cluster's Managed Identity
 resource "azurerm_role_assignment" "aks_acr_pull" {
   scope                = azurerm_container_registry.acr.id
